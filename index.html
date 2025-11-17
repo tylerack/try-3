@@ -24,7 +24,9 @@
     .score-input input:focus{background:var(--accent);color:black;}
     .row{display:flex;justify-content:space-between;padding:0.8rem 0;border-bottom:1px solid #30363d;}
     .rank1{color:var(--gold);font-size:1.3em;font-weight:bold;}
-    .add-game-input{display:flex;gap:0.5rem;}
+    .add-game-input{display:flex;gap:0.5rem;margin-bottom:1rem;}
+    .add-game-input input{flex:1;}
+    .add-game-input button{width:auto;padding:1rem 1.5rem;}
   </style>
 </head>
 <body>
@@ -41,9 +43,9 @@
     <!-- Add Game -->
     <div class="section" id="addGame" style="display:none;">
       <h2>Add Game Result</h2>
-      
+
       <div class="add-game-input">
-        <input type="text" id="newGameName" placeholder="New game (e.g. Air Hockey)">
+        <input type="text" id="newGameName" placeholder="New game name (e.g. Air Hockey, Cornhole)">
         <button onclick="addNewGame()">+ Add Game</button>
       </div>
 
@@ -68,7 +70,7 @@
       </button>
     </div>
 
-    <!-- History -->
+    <!-- Recent Games -->
     <div class="section">
       <h2>Recent Games</h2>
       <div id="history"></div>
@@ -78,15 +80,17 @@
   <script>
     const socket = io();
     let players = [];
-    let customGames = [];
+    let allGames = ['Mini-Golf', 'Bowling', 'Skee-Ball']; // default games
 
     socket.on('init', (state) => {
-      players = state.players;
-      customGames = state.customGames || [];
-      updateGameDropdown();
-      
-      if (players.length === 0) showSetup();
-      else {
+      players = state.players || [];
+      const custom = state.customGames || [];
+      allGames = ['Mini-Golf', 'Bowling', 'Skee-Ball', ...custom];
+      rebuildGameDropdown();
+
+      if (players.length === 0) {
+        showSetup();
+      } else {
         document.getElementById('setup').style.display = 'none';
         document.getElementById('addGame').style.display = 'block';
         buildScoreInputs();
@@ -94,11 +98,23 @@
       updateAll(state);
     });
 
-    socket.on('update', updateAll);
+    socket.on('update', (state) => {
+      const custom = state.customGames || [];
+      allGames = ['Mini-Golf', 'Bowling', 'Skee-Ball', ...custom];
+      rebuildGameDropdown();
+      updateAll(state);
+    });
 
-    function updateAll(state) {
-      updateLeaderboard(state.season);
-      updateHistory(state.games);
+    function rebuildGameDropdown() {
+      const select = document.getElementById('gameType');
+      const current = select.value.split(' (')[0];
+      select.innerHTML = allGames.map(g => {
+        const type = g === 'Mini-Golf' ? '(lowest wins)' : '(highest wins)';
+        return `<option>${g} ${type}</option>`;
+      }).join('');
+      // Try to keep selection
+      const option = Array.from(select.options).find(o => o.textContent.startsWith(current));
+      if (option) option.selected = true;
     }
 
     function showSetup() {
@@ -111,28 +127,20 @@
 
     function savePlayers() {
       const names = [];
-      for(let i=1;i<=8;i++) { const v = document.getElementById(`name${i}`).value.trim(); if(v) names.push(v); }
+      for(let i=1;i<=8;i++) {
+        const v = document.getElementById(`name${i}`).value.trim();
+        if(v) names.push(v);
+      }
       if(names.length < 2) return alert('Need at least 2 players');
       socket.emit('setPlayers', names);
     }
 
     function addNewGame() {
       const name = document.getElementById('newGameName').value.trim();
-      if (!name) return;
+      if (!name) return alert('Enter a game name');
+      if (allGames.includes(name)) return alert('Game already exists');
       socket.emit('addCustomGame', name);
       document.getElementById('newGameName').value = '';
-    }
-
-    function updateGameDropdown() {
-      const select = document.getElementById('gameType');
-      // Keep the default three
-      const defaults = ['Mini-Golf (lowest wins)', 'Bowling (highest wins)', 'Skee-Ball (highest wins)'];
-      select.innerHTML = defaults.map(g => `<option>${g}</option>`).join('');
-      customGames.forEach(g => {
-        if (!defaults.includes(g + ' (highest wins)')) {
-          select.innerHTML += `<option>${g} (highest wins)</option>`;
-        }
-      });
     }
 
     function buildScoreInputs() {
@@ -148,7 +156,8 @@
     }
 
     function submitGame() {
-      const gameName = document.getElementById('gameType').value.split(' (')[0];
+      const fullText = document.getElementById('gameType').value;
+      const gameName = fullText.split(' (')[0];
       const scores = {};
       let filled = 0;
       players.forEach(p => {
@@ -160,16 +169,16 @@
       document.querySelectorAll('#scoreInputs input').forEach(i => i.value = '');
     }
 
-    function updateLeaderboard(season) {
-      const sorted = Object.entries(season).sort((a,b)=>b[1]-a[1]);
+    function updateAll(state) {
+      // Leaderboard
+      const sorted = Object.entries(state.season || {}).sort((a,b)=>b[1]-a[1]);
       document.getElementById('leaderboard').innerHTML = sorted.map(([n,p],i) =>
         `<div class="row"><span class="rank${i<3?i+1:''}">${i+1}. ${n}</span><b>${p} pts</b></div>`
       ).join('') || '<i>No games yet</i>';
-    }
 
-    function updateHistory(games) {
-      document.getElementById('history').innerHTML = games.slice(0,15).map(g => `
-        <div class="game">
+      // History
+      document.getElementById('history').innerHTML = (state.games || []).slice(0,15).map(g => `
+        <div style="margin:1.5rem 0;padding:1rem;background:#0d1117;border-radius:12px;">
           <strong>${g.name}</strong> <small>${new Date(g.date).toLocaleTimeString()}</small>
           ${Object.entries(g.places).map(([p,d]) =>
             `<div class="row"><span class="rank${d.place<=3?d.place:''}">${d.place}. ${p} (${d.score})</span><b>+${d.points}</b></div>`
