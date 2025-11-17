@@ -7,7 +7,6 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, { cors: { origin: "*" } });
 
-// Upstash Redis (free & permanent)
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL,
   token: process.env.UPSTASH_REDIS_REST_TOKEN,
@@ -16,8 +15,7 @@ const redis = new Redis({
 app.use(express.static(__dirname));
 app.get('/', (req, res) => res.sendFile(__dirname + '/index.html'));
 
-// Load state from Redis once at startup
-let state = { players: [], games: [], season: {} };
+let state = { players: [], games: [], season: {}, customGames: [] };
 (async () => {
   const saved = await redis.get('arcade-state');
   if (saved) state = saved;
@@ -33,6 +31,14 @@ io.on('connection', (socket) => {
     io.emit('init', state);
   });
 
+  socket.on('addCustomGame', async (gameName) => {
+    if (!state.customGames.includes(gameName)) {
+      state.customGames.push(gameName);
+      await redis.set('arcade-state', state);
+      io.emit('init', state);
+    }
+  });
+
   socket.on('addGame', async (game) => {
     const isLowerBetter = game.name.includes('Mini-Golf');
     const sorted = Object.entries(game.scores)
@@ -45,7 +51,12 @@ io.on('connection', (socket) => {
       state.season[player] = (state.season[player] || 0) + points;
     });
 
-    state.games.unshift({ id: Date.now(), name: game.name, places, date: new Date().toISOString() });
+    state.games.unshift({
+      id: Date.now(),
+      name: game.name,
+      places,
+      date: new Date().toISOString()
+    });
     if (state.games.length > 100) state.games.pop();
 
     await redis.set('arcade-state', state);
@@ -60,5 +71,4 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Running on ${PORT}`));
+server.listen(process.env.PORT || 3000);
