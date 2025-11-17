@@ -18,11 +18,7 @@
     button:hover{filter:brightness(1.1);}
     button.danger{background:var(--red);color:white;}
     .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1.2rem;}
-    .player-setup input{font-size:1.5rem;text-align:center;}
-    .score-row{
-      background:#21262d;border-radius:12px;padding:1rem;
-      text-align:center;border:1px solid #30363d;
-    }
+    .score-row{background:#21262d;border-radius:12px;padding:1rem;text-align:center;border:1px solid #30363d;}
     .player-name{font-size:1.4rem;font-weight:bold;margin-bottom:0.5rem;color:var(--accent);}
     .score-input input{font-size:2.5rem;font-weight:bold;background:rgba(88,166,255,0.1);color:var(--text);}
     .score-input input:focus{background:var(--accent);color:black;outline:none;}
@@ -35,15 +31,13 @@
   <div class="container">
     <h1>Arcade Season Tracker</h1>
 
-    <!-- Setup Players (only once) -->
     <div class="section" id="setup" style="display:none;">
       <h2>Set Players for the Season</h2>
-      <p>You only do this once!</p>
+      <p>One-time setup – never again!</p>
       <div class="grid" id="playerSetup"></div>
       <button onclick="savePlayers()">Save Players & Start</button>
     </div>
 
-    <!-- Add Game -->
     <div class="section" id="addGame" style="display:none;">
       <h2>Add New Game</h2>
       <select id="gameType">
@@ -57,7 +51,6 @@
       </button>
     </div>
 
-    <!-- Leaderboard -->
     <div class="section">
       <h2>Season Leaderboard</h2>
       <div id="leaderboard">Loading...</div>
@@ -66,7 +59,6 @@
       </button>
     </div>
 
-    <!-- Recent Games -->
     <div class="section">
       <h2>Recent Games</h2>
       <div id="history"></div>
@@ -79,9 +71,8 @@
 
     socket.on('init', (state) => {
       players = state.players;
-      if (players.length === 0) {
-        showSetup();
-      } else {
+      if (players.length === 0) showSetup();
+      else {
         document.getElementById('setup').style.display = 'none';
         document.getElementById('addGame').style.display = 'block';
         buildScoreInputs();
@@ -99,33 +90,26 @@
     function showSetup() {
       document.getElementById('setup').style.display = 'block';
       document.getElementById('addGame').style.display = 'none';
-      const container = document.getElementById('playerSetup');
-      container.innerHTML = '';
-      for(let i=1; i<=8; i++){
-        container.innerHTML += `<div class="player-setup"><input type="text" placeholder="Player ${i}" id="name${i}"></div>`;
-      }
+      const c = document.getElementById('playerSetup');
+      c.innerHTML = '';
+      for(let i=1;i<=8;i++) c.innerHTML += `<div><input type="text" placeholder="Player ${i}" id="name${i}"></div>`;
     }
 
     function savePlayers() {
       const names = [];
-      for(let i=1; i<=8; i++){
-        const val = document.getElementById(`name${i}`).value.trim();
-        if(val) names.push(val);
-      }
-      if(names.length < 2) return alert('Enter at least 2 players');
+      for(let i=1;i<=8;i++) { const v = document.getElementById(`name${i}`).value.trim(); if(v) names.push(v); }
+      if(names.length < 2) return alert('Need ≥2 players');
       socket.emit('setPlayers', names);
     }
 
     function buildScoreInputs() {
-      const container = document.getElementById('scoreInputs');
-      container.innerHTML = '';
+      const c = document.getElementById('scoreInputs');
+      c.innerHTML = '';
       players.forEach(p => {
-        container.innerHTML += `
+        c.innerHTML += `
           <div class="score-row">
             <div class="player-name">${p}</div>
-            <div class="score-input">
-              <input type="number" placeholder="—" id="score_${p}">
-            </div>
+            <div class="score-input"><input type="number" placeholder="—" id="score_${p}"></div>
           </div>`;
       });
     }
@@ -135,19 +119,16 @@
       const scores = {};
       let filled = 0;
       players.forEach(p => {
-        const val = document.getElementById(`score_${p}`).value.trim();
-        if(val && !isNaN(val)) {
-          scores[p] = parseInt(val);
-          filled++;
-        }
+        const v = document.getElementById(`score_${p}`).value.trim();
+        if(v && !isNaN(v)) { scores[p] = parseInt(v); filled++; }
       });
-      if(filled < 2) return alert('Enter scores for at least 2 players');
+      if(filled < 2) return alert('Enter scores for ≥2 players');
       socket.emit('addGame', { name: gameName, scores });
       document.querySelectorAll('#scoreInputs input').forEach(i => i.value = '');
     }
 
     function updateLeaderboard(season) {
-      const sorted = Object.entries(season).sort((a,b) => b[1]-a[1]);
+      const sorted = Object.entries(season).sort((a,b)=>b[1]-a[1]);
       document.getElementById('leaderboard').innerHTML = sorted.map(([n,p],i) =>
         `<div class="row"><span class="rank${i<3?i+1:''}">${i+1}. ${n}</span><b>${p} pts</b></div>`
       ).join('') || '<i>No games yet</i>';
