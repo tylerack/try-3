@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Arcade Season Tracker</title>
+  <title>Championship Tracker</title>
   <script src="https://cdn.jsdelivr.net/npm/socket.io@4.7.5/client-dist/socket.io.min.js"></script>
   <style>
     :root{--bg:#0d1117;--card:#161b22;--text:#f0f6fc;--accent:#58a6ff;--gold:#ffd700;--red:#f85149;}
@@ -20,45 +20,55 @@
     .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1.2rem;}
     .score-row{background:#21262d;border-radius:12px;padding:1rem;text-align:center;border:1px solid #30363d;}
     .player-name{font-size:1.4rem;font-weight:bold;margin-bottom:0.5rem;color:var(--accent);}
-    .score-input input{font-size:2.5rem;font-weight:bold;background:rgba(88,166,255,0.1);color:var(--text);}
-    .score-input input:focus{background:var(--accent);color:black;outline:none;}
+    .score-input input{font-size:2.5rem;font-weight:bold;background:rgba(88,166,255,0.1);}
+    .score-input input:focus{background:var(--accent);color:black;}
     .row{display:flex;justify-content:space-between;padding:0.8rem 0;border-bottom:1px solid #30363d;}
     .rank1{color:var(--gold);font-size:1.3em;font-weight:bold;}
-    .game{margin:1.5rem 0;padding:1rem;background:#0d1117;border-radius:12px;}
+    .add-game-input{display:flex;gap:0.5rem;}
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Arcade Season Tracker</h1>
+    <h1>Championship Tracker</h1>
 
+    <!-- Setup Players -->
     <div class="section" id="setup" style="display:none;">
-      <h2>Set Players for the Season</h2>
-      <p>One-time setup – never again!</p>
+      <h2>Set Players (one time only)</h2>
       <div class="grid" id="playerSetup"></div>
       <button onclick="savePlayers()">Save Players & Start</button>
     </div>
 
+    <!-- Add Game -->
     <div class="section" id="addGame" style="display:none;">
-      <h2>Add New Game</h2>
+      <h2>Add Game Result</h2>
+      
+      <div class="add-game-input">
+        <input type="text" id="newGameName" placeholder="New game (e.g. Air Hockey)">
+        <button onclick="addNewGame()">+ Add Game</button>
+      </div>
+
       <select id="gameType">
         <option>Mini-Golf (lowest wins)</option>
         <option>Bowling (highest wins)</option>
         <option>Skee-Ball (highest wins)</option>
       </select>
+
       <div class="grid" id="scoreInputs"></div>
       <button onclick="submitGame()" style="margin-top:1rem;padding:1.2rem;font-size:1.3rem;">
-        Submit Game & Award Points
+        Submit & Award Points
       </button>
     </div>
 
+    <!-- Leaderboard -->
     <div class="section">
       <h2>Season Leaderboard</h2>
-      <div id="leaderboard">Loading...</div>
-      <button class="danger" onclick="if(confirm('Reset all points?'))socket.emit('resetSeason')">
-        Reset Season Points
+      <div id="leaderboard"></div>
+      <button class="danger" onclick="if(confirm('Reset season?'))socket.emit('resetSeason')">
+        Reset Season
       </button>
     </div>
 
+    <!-- History -->
     <div class="section">
       <h2>Recent Games</h2>
       <div id="history"></div>
@@ -68,9 +78,13 @@
   <script>
     const socket = io();
     let players = [];
+    let customGames = [];
 
     socket.on('init', (state) => {
       players = state.players;
+      customGames = state.customGames || [];
+      updateGameDropdown();
+      
       if (players.length === 0) showSetup();
       else {
         document.getElementById('setup').style.display = 'none';
@@ -98,8 +112,27 @@
     function savePlayers() {
       const names = [];
       for(let i=1;i<=8;i++) { const v = document.getElementById(`name${i}`).value.trim(); if(v) names.push(v); }
-      if(names.length < 2) return alert('Need ≥2 players');
+      if(names.length < 2) return alert('Need at least 2 players');
       socket.emit('setPlayers', names);
+    }
+
+    function addNewGame() {
+      const name = document.getElementById('newGameName').value.trim();
+      if (!name) return;
+      socket.emit('addCustomGame', name);
+      document.getElementById('newGameName').value = '';
+    }
+
+    function updateGameDropdown() {
+      const select = document.getElementById('gameType');
+      // Keep the default three
+      const defaults = ['Mini-Golf (lowest wins)', 'Bowling (highest wins)', 'Skee-Ball (highest wins)'];
+      select.innerHTML = defaults.map(g => `<option>${g}</option>`).join('');
+      customGames.forEach(g => {
+        if (!defaults.includes(g + ' (highest wins)')) {
+          select.innerHTML += `<option>${g} (highest wins)</option>`;
+        }
+      });
     }
 
     function buildScoreInputs() {
@@ -115,14 +148,14 @@
     }
 
     function submitGame() {
-      const gameName = document.getElementById('gameType').value;
+      const gameName = document.getElementById('gameType').value.split(' (')[0];
       const scores = {};
       let filled = 0;
       players.forEach(p => {
         const v = document.getElementById(`score_${p}`).value.trim();
         if(v && !isNaN(v)) { scores[p] = parseInt(v); filled++; }
       });
-      if(filled < 2) return alert('Enter scores for ≥2 players');
+      if(filled < 2) return alert('Enter scores for at least 2 players');
       socket.emit('addGame', { name: gameName, scores });
       document.querySelectorAll('#scoreInputs input').forEach(i => i.value = '');
     }
@@ -135,14 +168,14 @@
     }
 
     function updateHistory(games) {
-      document.getElementById('history').innerHTML = games.slice(0,12).map(g => `
+      document.getElementById('history').innerHTML = games.slice(0,15).map(g => `
         <div class="game">
           <strong>${g.name}</strong> <small>${new Date(g.date).toLocaleTimeString()}</small>
           ${Object.entries(g.places).map(([p,d]) =>
             `<div class="row"><span class="rank${d.place<=3?d.place:''}">${d.place}. ${p} (${d.score})</span><b>+${d.points}</b></div>`
           ).join('')}
         </div>
-      `).join('') || '<i>No games played yet</i>';
+      `).join('') || '<i>No games yet</i>';
     }
   </script>
 </body>
