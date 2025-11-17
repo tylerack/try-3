@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arcade Season Tracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/socket.io@4.7.5/client-dist/socket.io.min.js"></script>
+  <style>
+    :root{--bg:#0d1117;--card:#161b22;--text:#f0f6fc;--accent:#58a6ff;--gold:#ffd700;--red:#f85149;}
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);padding:1rem;min-height:100vh;}
+    .container{max-width:900px;margin:0 auto;}
+    h1,h2{text-align:center;margin:1.5rem 0;color:var(--accent);}
+    .section{background:var(--card);border-radius:16px;padding:2rem;margin-bottom:2rem;border:1px solid #30363d;}
+    input,select,button{padding:1rem;border-radius:12px;font-size:1.1rem;margin:0.5rem 0;width:100%;border:none;}
+    input,select{background:#0d1117;color:white;}
+    button{background:var(--accent);color:black;font-weight:bold;cursor:pointer;}
+    button:hover{filter:brightness(1.1);}
+    button.danger{background:var(--red);color:white;}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1.2rem;}
+    .player-setup input{font-size:1.5rem;text-align:center;}
+    .score-row{
+      background:#21262d;border-radius:12px;padding:1rem;
+      text-align:center;border:1px solid #30363d;
+    }
+    .player-name{font-size:1.4rem;font-weight:bold;margin-bottom:0.5rem;color:var(--accent);}
+    .score-input input{font-size:2.5rem;font-weight:bold;background:rgba(88,166,255,0.1);color:var(--text);}
+    .score-input input:focus{background:var(--accent);color:black;outline:none;}
+    .row{display:flex;justify-content:space-between;padding:0.8rem 0;border-bottom:1px solid #30363d;}
+    .rank1{color:var(--gold);font-size:1.3em;font-weight:bold;}
+    .game{margin:1.5rem 0;padding:1rem;background:#0d1117;border-radius:12px;}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Arcade Season Tracker</h1>
+
+    <!-- Setup Players (only once) -->
+    <div class="section" id="setup" style="display:none;">
+      <h2>Set Players for the Season</h2>
+      <p>You only do this once!</p>
+      <div class="grid" id="playerSetup"></div>
+      <button onclick="savePlayers()">Save Players & Start</button>
+    </div>
+
+    <!-- Add Game -->
+    <div class="section" id="addGame" style="display:none;">
+      <h2>Add New Game</h2>
+      <select id="gameType">
+        <option>Mini-Golf (lowest wins)</option>
+        <option>Bowling (highest wins)</option>
+        <option>Skee-Ball (highest wins)</option>
+      </select>
+      <div class="grid" id="scoreInputs"></div>
+      <button onclick="submitGame()" style="margin-top:1rem;padding:1.2rem;font-size:1.3rem;">
+        Submit Game & Award Points
+      </button>
+    </div>
+
+    <!-- Leaderboard -->
+    <div class="section">
+      <h2>Season Leaderboard</h2>
+      <div id="leaderboard">Loading...</div>
+      <button class="danger" onclick="if(confirm('Reset all points?'))socket.emit('resetSeason')">
+        Reset Season Points
+      </button>
+    </div>
+
+    <!-- Recent Games -->
+    <div class="section">
+      <h2>Recent Games</h2>
+      <div id="history"></div>
+    </div>
+  </div>
+
+  <script>
+    const socket = io();
+    let players = [];
+
+    socket.on('init', (state) => {
+      players = state.players;
+      if (players.length === 0) {
+        showSetup();
+      } else {
+        document.getElementById('setup').style.display = 'none';
+        document.getElementById('addGame').style.display = 'block';
+        buildScoreInputs();
+      }
+      updateAll(state);
+    });
+
+    socket.on('update', updateAll);
+
+    function updateAll(state) {
+      updateLeaderboard(state.season);
+      updateHistory(state.games);
+    }
+
+    function showSetup() {
+      document.getElementById('setup').style.display = 'block';
+      document.getElementById('addGame').style.display = 'none';
+      const container = document.getElementById('playerSetup');
+      container.innerHTML = '';
+      for(let i=1; i<=8; i++){
+        container.innerHTML += `<div class="player-setup"><input type="text" placeholder="Player ${i}" id="name${i}"></div>`;
+      }
+    }
+
+    function savePlayers() {
+      const names = [];
+      for(let i=1; i<=8; i++){
+        const val = document.getElementById(`name${i}`).value.trim();
+        if(val) names.push(val);
+      }
+      if(names.length < 2) return alert('Enter at least 2 players');
+      socket.emit('setPlayers', names);
+    }
+
+    function buildScoreInputs() {
+      const container = document.getElementById('scoreInputs');
+      container.innerHTML = '';
+      players.forEach(p => {
+        container.innerHTML += `
+          <div class="score-row">
+            <div class="player-name">${p}</div>
+            <div class="score-input">
+              <input type="number" placeholder="—" id="score_${p}">
+            </div>
+          </div>`;
+      });
+    }
+
+    function submitGame() {
+      const gameName = document.getElementById('gameType').value;
+      const scores = {};
+      let filled = 0;
+      players.forEach(p => {
+        const val = document.getElementById(`score_${p}`).value.trim();
+        if(val && !isNaN(val)) {
+          scores[p] = parseInt(val);
+          filled++;
+        }
+      });
+      if(filled < 2) return alert('Enter scores for at least 2 players');
+      socket.emit('addGame', { name: gameName, scores });
+      document.querySelectorAll('#scoreInputs input').forEach(i => i.value = '');
+    }
+
+    function updateLeaderboard(season) {
+      const sorted = Object.entries(season).sort((a,b) => b[1]-a[1]);
+      document.getElementById('leaderboard').innerHTML = sorted.map(([n,p],i) =>
+        `<div class="row"><span class="rank${i<3?i+1:''}">${i+1}. ${n}</span><b>${p} pts</b></div>`
+      ).join('') || '<i>No games yet</i>';
+    }
+
+    function updateHistory(games) {
+      document.getElementById('history').innerHTML = games.slice(0,12).map(g => `
+        <div class="game">
+          <strong>${g.name}</strong> <small>${new Date(g.date).toLocaleTimeString()}</small>
+          ${Object.entries(g.places).map(([p,d]) =>
+            `<div class="row"><span class="rank${d.place<=3?d.place:''}">${d.place}. ${p} (${d.score})</span><b>+${d.points}</b></div>`
+          ).join('')}
+        </div>
+      `).join('') || '<i>No games played yet</i>';
+    }
+  </script>
+</body>
+</html>
