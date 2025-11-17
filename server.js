@@ -1,30 +1,39 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
+const { Redis } = require('@upstash/redis');
 
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, { cors: { origin: "*" } });
 
+// Upstash Redis (free & permanent)
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN,
+});
+
 app.use(express.static(__dirname));
 app.get('/', (req, res) => res.sendFile(__dirname + '/index.html'));
 
-let state = {
-  players: [],
-  games: [],
-  season: {}
-};
+// Load state from Redis once at startup
+let state = { players: [], games: [], season: {} };
+(async () => {
+  const saved = await redis.get('arcade-state');
+  if (saved) state = saved;
+})();
 
 io.on('connection', (socket) => {
   socket.emit('init', state);
 
-  socket.on('setPlayers', (names) => {
+  socket.on('setPlayers', async (names) => {
     state.players = names.filter(n => n.trim());
     state.players.forEach(p => state.season[p] = state.season[p] || 0);
+    await redis.set('arcade-state', state);
     io.emit('init', state);
   });
 
-  socket.on('addGame', (game) => {
+  socket.on('addGame', async (game) => {
     const isLowerBetter = game.name.includes('Mini-Golf');
     const sorted = Object.entries(game.scores)
       .sort(([,a],[,b]) => isLowerBetter ? a-b : b-a);
@@ -33,26 +42,23 @@ io.on('connection', (socket) => {
     sorted.forEach(([player, score], i) => {
       const points = i === 0 ? 5 : i === 1 ? 4 : i === 2 ? 3 : 2;
       places[player] = { score, place: i+1, points };
-      state.season[player] += points;
+      state.season[player] = (state.season[player] || 0) + points;
     });
 
-    state.games.unshift({
-      id: Date.now(),
-      name: game.name,
-      places,
-      date: new Date().toISOString()
-    });
+    state.games.unshift({ id: Date.now(), name: game.name, places, date: new Date().toISOString() });
     if (state.games.length > 100) state.games.pop();
 
+    await redis.set('arcade-state', state);
     io.emit('update', state);
   });
 
-  socket.on('resetSeason', () => {
-    Object.keys(state.season).forEach(p => state.season[p] = 0);
+  socket.on('resetSeason', async () => {
+    state.players.forEach(p => state.season[p] = 0);
     state.games = [];
+    await redis.set('arcade-state', state);
     io.emit('update', state);
   });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Running on port ${PORT}`));
+server.listen(PORT, () => console.log(`Running on ${PORT}`));
